@@ -3,12 +3,41 @@
 
 type nodeState = {
     style: string, // will only cause style to be updated
+    eventListeners: [string, (self: any, e: Event)=>void][]
     children: string[] // list of uids in order, will only casue appedn or prepend
     generic: string[] // list of strings that must be equal or else cause full rerender
 }
 
 
-export const nodeTable = new Map<string, sdNode>()
+const nodeTable = new Map<string, sdNode>()
+
+
+// export function sdGetElementById<ElementType extends sdElement>(uid: string): ElementType | null {
+//     let el = nodeTable.get(uid)
+//     if (el?.nodeType == nodeType.element) {
+//         return el as ElementType
+//     } else {
+//         return null
+//     }
+// }
+
+export function sdGetNodeById<ElementType extends sdNode>(uid: string): ElementType | null {
+    let el = nodeTable.get(uid)
+    if (el) {
+        return el as ElementType
+    } else {
+        return null
+    }
+}
+
+// export function sdGetTextById(uid: string): sdText | null {
+//     let el = nodeTable.get(uid)
+//     if (el?.nodeType == nodeType.text) {
+//         return el as sdText
+//     } else {
+//         return null
+//     }
+// }
 
 const prevNodeLookup = new Map<string, nodeState>()
 
@@ -33,10 +62,12 @@ export class sdText {
     uid: string
     text: string
     nodeType = nodeType.text
+    htmlElement: HTMLDivElement
     getState() {
         return {
             style: "",
             children: [],
+            eventListeners: [],
             generic: [this.text]
         }
     }
@@ -53,6 +84,7 @@ export class sdText {
         prevNodeLookup.set(this.uid, this.getState())
 
         container.appendChild(el)
+        this.htmlElement = container
         if (nextSibling) {
             parent.insertBefore(container, nextSibling)
         } else {
@@ -72,7 +104,7 @@ class sdElementBase implements sdElement {
     nodeType = nodeType.element
     children: sdNode[] = []
     uid: string
-    styleString: string
+    styleString: string = ""
     htmlElement: HTMLElement
     tagName: string
     constructor(uid: string) {
@@ -98,13 +130,18 @@ class sdElementBase implements sdElement {
 
     }
     addStyle(style: string) {
-        
+        this.styleString+=style
+        return this
     }
     create(parent: HTMLElement, nextSibling?: HTMLElement) {
         prevNodeLookup.set(this.uid, this.getState())
         let el = document.createElement(this.tagName)
         el.id = this.uid
 
+        el.style.cssText = this.styleString
+        for (let [e, l] of this.eventListeners) {
+            el["on"+ e] = (e)=>{l(this, e)}
+        }
         if (nextSibling) {
             parent.insertBefore(el, nextSibling)
         } else {
@@ -116,15 +153,33 @@ class sdElementBase implements sdElement {
     getState(): nodeState {
         return {
             style: this.styleString,
+            eventListeners: this.eventListeners,
             children: this.children.map((c)=>c.uid),
             generic: []
         }
+    }
+    eventListeners: [string, (self: this, e: Event)=>void][] = []
+    addEventListener(event: string, listener: (self: this, e: Event)=>void) {
+        this.eventListeners.push([event, listener])
+        return this
     }
 }
 
 export class div extends sdElementBase {
     tagName = "div"
     declare htmlElement: HTMLDivElement
+    constructor(uid: string, ...children: sdNode[]) {
+        super(uid)
+        for (let c of children) {
+            this.children.push(c)
+        }
+        
+    }
+}
+
+export class button extends sdElementBase {
+    tagName = "button"
+    declare htmlElement: HTMLButtonElement
     constructor(uid: string, ...children: sdNode[]) {
         super(uid)
         for (let c of children) {
@@ -150,6 +205,7 @@ export class textInput extends sdElementBase {
     getState(): nodeState {
         return {
             style: this.styleString,
+            eventListeners: this.eventListeners,
             children: [],
             generic: [this.value1]
         } 
@@ -163,12 +219,19 @@ export class textInput extends sdElementBase {
         h.setAttribute("type", "text")
         h.value = this.value1
         h.id = this.uid
+
+        for (let [e, l] of this.eventListeners) {
+            h["on"+ e] = (e)=>{l(this, e)}
+        }
         this.htmlElement = h
         if (nextSibling) {
             parent.insertBefore(h, nextSibling)
         } else {
             parent.appendChild(h)
         }
+        h.style.cssText += this.styleString
+        console.log(h.style.cssText + ", " + this.styleString)
+
         return h
     }
     
@@ -191,6 +254,8 @@ function checkForChanges(node: sdNode) {
     let prevState = prevNodeLookup.get(node.uid)
     let currentState = node.getState()
     if (prevState) {
+        let htmlNode = document.getElementById(node.uid)!
+
         for (let i = 0; i < currentState.generic.length; i++) {
 
             if (prevState.generic[i] != currentState.generic[i]) {
@@ -198,17 +263,29 @@ function checkForChanges(node: sdNode) {
 
                 let parentNode = document.getElementById(node.uid)!.parentElement!
                 //remove old
-                document.getElementById(node.uid)!.remove()
+                // get nextSibling
+                var nextSibling = htmlNode.nextSibling as HTMLElement || undefined
+                htmlNode.remove()
                 // nodeTable.delete(node.uid)
                 // prevNodeLookup.delete(node.uid)
 
                 //add new
 
                 if (node.nodeType == nodeType.element) {
-                    createChildren(node.create(parentNode) as HTMLElement, (node as sdElement).children)
+                    createChildren(node.create(parentNode, nextSibling) as HTMLElement, (node as sdElement).children)
         
                 } else {
-                    node.create(parentNode)
+                    // special case for text nodes
+                    // only generic value used is text, so we'll just update for him
+                    // if (node.nodeType == nodeType.text && node.htmlElement) {
+                    //     // a bit dangerous asuming this, but itll do
+                    //     console.log(node)
+                    //     node.htmlElement.innerText = currentState.generic[0]
+                    // } else {
+                        node.create(parentNode, nextSibling)
+
+                    // }
+                    
                 }
 
                 return // weve handled all childrens changes by rerendering them
@@ -222,9 +299,27 @@ function checkForChanges(node: sdNode) {
         }
 
 
+        let currentStateECopy = currentState.eventListeners.map((v)=>v)
+        out: 
+        for (let pe of prevState.eventListeners) {
+            for (let i = 0; i < currentStateECopy.length; i++) {
+                // how to compare functions ?????  && pe[1] == currentStateECopy[i][1]
+                if (pe[0] == currentStateECopy[i][0]) {
+                    currentStateECopy.splice(i)
+                    continue out
+                }
+            }
+            // event listener no longer exists 
+            htmlNode["on"+pe[0]] = null // remove 
+        }
+        // add all new event listeners
+        for (let [eName, listener] of currentStateECopy) {
+            htmlNode["on"+eName] = (e)=>{listener(htmlNode, e)}
+        }
+
+
         //first, find children to remove and to add will be left in curretnStateCCopy
         let currentStateCCopy = currentState.children.map((v)=>v)
-        let parentNode = document.getElementById(node.uid)!
         out:
         for (let p of prevState.children) {
             for (let ci = 0; ci < currentStateCCopy.length; ci++) {
@@ -233,7 +328,7 @@ function checkForChanges(node: sdNode) {
                     continue out
                 }
             }
-            parentNode.removeChild(document.getElementById(p)!) // need to think about how to remove text and find it
+            htmlNode.removeChild(document.getElementById(p)!) // need to think about how to remove text and find it
             prevNodeLookup.delete(p)
         }
 
@@ -248,14 +343,14 @@ function checkForChanges(node: sdNode) {
                     let node1 = nodeTable.get(currentState.children[i])!
 
                     if (prevState.children[i+1]) { // checks if there is something to prepenf before
-                        let el = node1.create(parentNode, document.getElementById(prevState.children[i+1])!) // prepend before the next element the old state
+                        let el = node1.create(htmlNode, document.getElementById(prevState.children[i+1])!) // prepend before the next element the old state
                         if (node1.nodeType == nodeType.element) {
                             createChildren((el as HTMLElement), (node1 as sdElement).children)
 
                         }
                         
                     } else { //otherwise well jsut append the child 
-                        let el = node1.create(parentNode)
+                        let el = node1.create(htmlNode)
                         if (node1.nodeType == nodeType.element) {
                             createChildren((el as HTMLElement), (node1 as sdElement).children)
 
@@ -268,10 +363,10 @@ function checkForChanges(node: sdNode) {
                     
                     
                     if (prevState.children[i+1]) { // checks if there is something to prepenf before
-                        parentNode.insertBefore(htmNode, document.getElementById(prevState.children[i+1])!)
+                        htmlNode.insertBefore(htmNode, document.getElementById(prevState.children[i+1])!)
                         
                     } else { //otherwise well jsut append the child 
-                        parentNode.appendChild(htmNode)
+                        htmlNode.appendChild(htmNode)
                     }
                     
                     

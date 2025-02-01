@@ -1,6 +1,14 @@
 (() => {
   // src/lib.ts
   var nodeTable = /* @__PURE__ */ new Map();
+  function sdGetNodeById(uid) {
+    let el = nodeTable.get(uid);
+    if (el) {
+      return el;
+    } else {
+      return null;
+    }
+  }
   var prevNodeLookup = /* @__PURE__ */ new Map();
   var sdText = class {
     constructor(uid, t) {
@@ -13,6 +21,7 @@
       return {
         style: "",
         children: [],
+        eventListeners: [],
         generic: [this.text]
       };
     }
@@ -22,6 +31,7 @@
       let el = document.createTextNode(this.text);
       prevNodeLookup.set(this.uid, this.getState());
       container.appendChild(el);
+      this.htmlElement = container;
       if (nextSibling) {
         parent.insertBefore(container, nextSibling);
       } else {
@@ -35,6 +45,8 @@
     constructor(uid) {
       this.nodeType = 1 /* element */;
       this.children = [];
+      this.styleString = "";
+      this.eventListeners = [];
       this.uid = uid;
       nodeTable.set(uid, this);
       let el = document.getElementById(uid);
@@ -52,11 +64,19 @@
       }
     }
     addStyle(style) {
+      this.styleString += style;
+      return this;
     }
     create(parent, nextSibling) {
       prevNodeLookup.set(this.uid, this.getState());
       let el = document.createElement(this.tagName);
       el.id = this.uid;
+      el.style.cssText = this.styleString;
+      for (let [e, l] of this.eventListeners) {
+        el["on" + e] = (e2) => {
+          l(this, e2);
+        };
+      }
       if (nextSibling) {
         parent.insertBefore(el, nextSibling);
       } else {
@@ -68,15 +88,29 @@
     getState() {
       return {
         style: this.styleString,
+        eventListeners: this.eventListeners,
         children: this.children.map((c) => c.uid),
         generic: []
       };
+    }
+    addEventListener(event, listener) {
+      this.eventListeners.push([event, listener]);
+      return this;
     }
   };
   var div = class extends sdElementBase {
     constructor(uid, ...children) {
       super(uid);
       this.tagName = "div";
+      for (let c of children) {
+        this.children.push(c);
+      }
+    }
+  };
+  var button = class extends sdElementBase {
+    constructor(uid, ...children) {
+      super(uid);
+      this.tagName = "button";
       for (let c of children) {
         this.children.push(c);
       }
@@ -93,6 +127,7 @@
     getState() {
       return {
         style: this.styleString,
+        eventListeners: this.eventListeners,
         children: [],
         generic: [this.value1]
       };
@@ -106,12 +141,19 @@
       h.setAttribute("type", "text");
       h.value = this.value1;
       h.id = this.uid;
+      for (let [e, l] of this.eventListeners) {
+        h["on" + e] = (e2) => {
+          l(this, e2);
+        };
+      }
       this.htmlElement = h;
       if (nextSibling) {
         parent.insertBefore(h, nextSibling);
       } else {
         parent.appendChild(h);
       }
+      h.style.cssText += this.styleString;
+      console.log(h.style.cssText + ", " + this.styleString);
       return h;
     }
   };
@@ -128,14 +170,16 @@
     let prevState = prevNodeLookup.get(node.uid);
     let currentState = node.getState();
     if (prevState) {
+      let htmlNode = document.getElementById(node.uid);
       for (let i = 0; i < currentState.generic.length; i++) {
         if (prevState.generic[i] != currentState.generic[i]) {
-          let parentNode2 = document.getElementById(node.uid).parentElement;
-          document.getElementById(node.uid).remove();
+          let parentNode = document.getElementById(node.uid).parentElement;
+          var nextSibling = htmlNode.nextSibling || void 0;
+          htmlNode.remove();
           if (node.nodeType == 1 /* element */) {
-            createChildren(node.create(parentNode2), node.children);
+            createChildren(node.create(parentNode, nextSibling), node.children);
           } else {
-            node.create(parentNode2);
+            node.create(parentNode, nextSibling);
           }
           return;
         }
@@ -145,8 +189,23 @@
           document.getElementById(node.uid).style.cssText = node.styleString;
         }
       }
+      let currentStateECopy = currentState.eventListeners.map((v) => v);
+      out:
+        for (let pe of prevState.eventListeners) {
+          for (let i = 0; i < currentStateECopy.length; i++) {
+            if (pe[0] == currentStateECopy[i][0]) {
+              currentStateECopy.splice(i);
+              continue out;
+            }
+          }
+          htmlNode["on" + pe[0]] = null;
+        }
+      for (let [eName, listener] of currentStateECopy) {
+        htmlNode["on" + eName] = (e) => {
+          listener(htmlNode, e);
+        };
+      }
       let currentStateCCopy = currentState.children.map((v) => v);
-      let parentNode = document.getElementById(node.uid);
       out:
         for (let p of prevState.children) {
           for (let ci = 0; ci < currentStateCCopy.length; ci++) {
@@ -155,7 +214,7 @@
               continue out;
             }
           }
-          parentNode.removeChild(document.getElementById(p));
+          htmlNode.removeChild(document.getElementById(p));
           prevNodeLookup.delete(p);
         }
       for (let i of currentStateCCopy) {
@@ -165,12 +224,12 @@
           if (currentStateCCopy.includes(currentState.children[i])) {
             let node1 = nodeTable.get(currentState.children[i]);
             if (prevState.children[i + 1]) {
-              let el = node1.create(parentNode, document.getElementById(prevState.children[i + 1]));
+              let el = node1.create(htmlNode, document.getElementById(prevState.children[i + 1]));
               if (node1.nodeType == 1 /* element */) {
                 createChildren(el, node1.children);
               }
             } else {
-              let el = node1.create(parentNode);
+              let el = node1.create(htmlNode);
               if (node1.nodeType == 1 /* element */) {
                 createChildren(el, node1.children);
               }
@@ -178,9 +237,9 @@
           } else {
             let htmNode = document.getElementById(currentState.children[i]);
             if (prevState.children[i + 1]) {
-              parentNode.insertBefore(htmNode, document.getElementById(prevState.children[i + 1]));
+              htmlNode.insertBefore(htmNode, document.getElementById(prevState.children[i + 1]));
             } else {
-              parentNode.appendChild(htmNode);
+              htmlNode.appendChild(htmNode);
             }
           }
         }
@@ -215,8 +274,20 @@
 
   // src/main.ts
   function r() {
-    let emailIn = new textInput("email-inpt", "");
-    return new div("root-div", emailIn, new sdText("email-display", "hello?: " + emailIn.htmlElement.value), new sdText("date", Date.now().toString()));
+    return new div("root-div", new textInput("email-inpt", "").addStyle(`background-color: ${sdGetNodeById("email-inpt").htmlElement.value};`), new sdText("email-display", `
+                email: ${sdGetNodeById("email-inpt").htmlElement.value}
+                time from below: ${sdGetNodeById("date")?.text}
+            `), new sdText("date", Date.now().toString()), counter("first"), counter("first1"));
+  }
+  var counts = /* @__PURE__ */ new Map();
+  function counter(uid) {
+    var count = counts.get(uid);
+    if (count == void 0)
+      count = { i: 0 };
+    counts.set(uid, count);
+    return new div(`counter-${uid}-root`, new sdText(`counter-${uid}-display`, count.i.toString()), new button(`counter-${uid}-button`, new sdText(`counter-${uid}-button-text`, "+")).addEventListener("click", (self, e) => {
+      count.i++;
+    }));
   }
   renderApp(r, document.getElementById("app"));
 })();
