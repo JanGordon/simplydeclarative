@@ -1,3 +1,6 @@
+
+
+
 type nodeState = {
     style: string, // will only cause style to be updated
     children: string[] // list of uids in order, will only casue appedn or prepend
@@ -5,7 +8,7 @@ type nodeState = {
 }
 
 
-const nodeTable = new Map<string, sdNode>()
+export const nodeTable = new Map<string, sdNode>()
 
 const prevNodeLookup = new Map<string, nodeState>()
 
@@ -18,6 +21,7 @@ export enum nodeType {
 
 export interface sdElement {
     uid: string
+    htmlElement: HTMLElement
     nodeType: nodeType
     styleString: string
     children: sdNode[]
@@ -58,6 +62,8 @@ export class sdText {
     }
 }
 
+const placeholders = new Map<string, HTMLElement>() // holds placeholder elements indexed by tagName
+
 // function toNode(i: sdNode | string): sdNode {
 //     return typeof i == "string" ? new sdText(i) : i
 // }
@@ -67,11 +73,28 @@ class sdElementBase implements sdElement {
     children: sdNode[] = []
     uid: string
     styleString: string
+    htmlElement: HTMLElement
     tagName: string
     constructor(uid: string) {
 
         this.uid = uid
         nodeTable.set(uid, this)
+        let el = document.getElementById(uid) 
+        if (el) {
+            this.htmlElement = el
+        } else {
+            let placeholder = placeholders.get(this.tagName)
+            if (placeholder) {
+                this.htmlElement = placeholder
+
+            } else {
+                let el = document.createElement(this.tagName)
+                placeholders.set(this.tagName, el)
+                this.htmlElement = el
+            }
+
+        }
+
 
     }
     addStyle(style: string) {
@@ -87,6 +110,7 @@ class sdElementBase implements sdElement {
         } else {
             parent.appendChild(el)
         }
+        this.htmlElement = el
         return el
     }
     getState(): nodeState {
@@ -98,9 +122,9 @@ class sdElementBase implements sdElement {
     }
 }
 
-
 export class div extends sdElementBase {
     tagName = "div"
+    declare htmlElement: HTMLDivElement
     constructor(uid: string, ...children: sdNode[]) {
         super(uid)
         for (let c of children) {
@@ -110,27 +134,36 @@ export class div extends sdElementBase {
     }
 }
 
+
+
 export class textInput extends sdElementBase {
     tagName = "input"
-    value: string;
+    private value1: string;
+    value = ""
+    declare htmlElement: HTMLInputElement
+
     constructor(uid: string, value?: string) {
         super(uid)
-        
         this.value = value || ""
+        this.value1 = value || ""
     }
     getState(): nodeState {
         return {
             style: this.styleString,
             children: [],
-            generic: [this.value]
+            generic: [this.value1]
         } 
     }
     create(parent: HTMLElement, nextSibling?: HTMLElement) {
         prevNodeLookup.set(this.uid, this.getState())
         let h = document.createElement(this.tagName) as HTMLInputElement
+        h.addEventListener("change", ()=>{
+            this.value = h.value
+        })
         h.setAttribute("type", "text")
-        h.value = this.value
+        h.value = this.value1
         h.id = this.uid
+        this.htmlElement = h
         if (nextSibling) {
             parent.insertBefore(h, nextSibling)
         } else {
@@ -158,7 +191,6 @@ function checkForChanges(node: sdNode) {
     let prevState = prevNodeLookup.get(node.uid)
     let currentState = node.getState()
     if (prevState) {
-        console.log(currentState.generic, prevState.generic, node.uid)
         for (let i = 0; i < currentState.generic.length; i++) {
 
             if (prevState.generic[i] != currentState.generic[i]) {
@@ -257,13 +289,30 @@ export function renderApp(app: ()=>sdElement, target: HTMLElement) {
     let rootEl = app()
     
     createChildren(rootEl.create(target) as HTMLElement, rootEl.children)
+    var toPause = false
 
     function animate() {
         let rootEl = app()
         checkForChanges(rootEl)
 
-
-        requestAnimationFrame(animate)
+        if (!toPause) {
+            requestAnimationFrame(animate)
+        }
     }
     requestAnimationFrame(animate)
+    //@ts-expect-error
+    window.sdNextFrame = ()=>{toPause = true; animate()}
+
+    //@ts-expect-error
+    window.sdPause = ()=>{toPause = true}
+
+    //@ts-expect-error
+    window.sdResume = ()=>{toPause = false; requestAnimationFrame(animate)}
+
 }
+
+
+
+
+
+// shoud probably store htmlElement in state and allow custoemr code to use

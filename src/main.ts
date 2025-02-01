@@ -1,9 +1,16 @@
-import { div, textInput, sdText, renderApp } from "./lib"
+import { div, textInput, sdText, renderApp, nodeTable } from "./lib"
+
+
+
 
 
 function r() {
+
+    let emailIn = new textInput("email-inpt", "")
+
     return new div("root-div", 
-        new textInput("email-inpt", ""),
+        emailIn,
+        new sdText("email-display", "hello?: " + emailIn.htmlElement.value),
         new sdText("date", Date.now().toString())
     )
 }

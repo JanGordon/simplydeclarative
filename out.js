@@ -30,12 +30,26 @@
       return container;
     }
   };
+  var placeholders = /* @__PURE__ */ new Map();
   var sdElementBase = class {
     constructor(uid) {
       this.nodeType = 1 /* element */;
       this.children = [];
       this.uid = uid;
       nodeTable.set(uid, this);
+      let el = document.getElementById(uid);
+      if (el) {
+        this.htmlElement = el;
+      } else {
+        let placeholder = placeholders.get(this.tagName);
+        if (placeholder) {
+          this.htmlElement = placeholder;
+        } else {
+          let el2 = document.createElement(this.tagName);
+          placeholders.set(this.tagName, el2);
+          this.htmlElement = el2;
+        }
+      }
     }
     addStyle(style) {
     }
@@ -48,6 +62,7 @@
       } else {
         parent.appendChild(el);
       }
+      this.htmlElement = el;
       return el;
     }
     getState() {
@@ -71,21 +86,27 @@
     constructor(uid, value) {
       super(uid);
       this.tagName = "input";
+      this.value = "";
       this.value = value || "";
+      this.value1 = value || "";
     }
     getState() {
       return {
         style: this.styleString,
         children: [],
-        generic: [this.value]
+        generic: [this.value1]
       };
     }
     create(parent, nextSibling) {
       prevNodeLookup.set(this.uid, this.getState());
       let h = document.createElement(this.tagName);
+      h.addEventListener("change", () => {
+        this.value = h.value;
+      });
       h.setAttribute("type", "text");
-      h.value = this.value;
+      h.value = this.value1;
       h.id = this.uid;
+      this.htmlElement = h;
       if (nextSibling) {
         parent.insertBefore(h, nextSibling);
       } else {
@@ -107,7 +128,6 @@
     let prevState = prevNodeLookup.get(node.uid);
     let currentState = node.getState();
     if (prevState) {
-      console.log(currentState.generic, prevState.generic, node.uid);
       for (let i = 0; i < currentState.generic.length; i++) {
         if (prevState.generic[i] != currentState.generic[i]) {
           let parentNode2 = document.getElementById(node.uid).parentElement;
@@ -171,17 +191,32 @@
   function renderApp(app, target) {
     let rootEl = app();
     createChildren(rootEl.create(target), rootEl.children);
+    var toPause = false;
     function animate() {
       let rootEl2 = app();
       checkForChanges(rootEl2);
-      requestAnimationFrame(animate);
+      if (!toPause) {
+        requestAnimationFrame(animate);
+      }
     }
     requestAnimationFrame(animate);
+    window.sdNextFrame = () => {
+      toPause = true;
+      animate();
+    };
+    window.sdPause = () => {
+      toPause = true;
+    };
+    window.sdResume = () => {
+      toPause = false;
+      requestAnimationFrame(animate);
+    };
   }
 
   // src/main.ts
   function r() {
-    return new div("root-div", new textInput("email-inpt", ""), new sdText("date", Date.now().toString()));
+    let emailIn = new textInput("email-inpt", "");
+    return new div("root-div", emailIn, new sdText("email-display", "hello?: " + emailIn.htmlElement.value), new sdText("date", Date.now().toString()));
   }
   renderApp(r, document.getElementById("app"));
 })();
