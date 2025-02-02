@@ -1,8 +1,14 @@
-import { div, textInput, sdText, renderApp, sdElement, sdGetNodeById, button } from "../../lib/lib"
+import { div, textInput, sdText, renderApp, sdElement, sdGetNodeById, button, img } from "../../lib/lib"
 
 
 
+var heroSrc = "https://picsum.photos/200/300"
 
+function nextImage() {
+    heroSrc = `https://picsum.photos/200/300?nocache=${Date.now()}`
+}
+
+var switcherInterval = setInterval(nextImage, 5000)
 
 function r() {
 
@@ -18,6 +24,13 @@ function r() {
         new sdText("date", Date.now().toString()),
         counter("first"),
         counter("first1"),
+        new img("hero", heroSrc),
+        new sdText("image-caption", heroSrc),
+        new button("next-image", new sdText("next-image-btn", "New Image")).addEventListener("click", ()=>{
+            nextImage()
+            clearInterval(switcherInterval)
+            switcherInterval = setInterval(nextImage, 5000)
+        })
     )
 }
 
