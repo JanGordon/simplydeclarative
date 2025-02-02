@@ -1,1 +1,0 @@
-lserv -p $1 & esbuild src/main.ts --bundle --watch --outfile="out.js" && fg

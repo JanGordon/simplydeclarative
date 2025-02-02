@@ -1,5 +1,4 @@
 {
-    "dependencies": {
-      "kleinui": "^0.0.3"
-    }
-  }
+    "main": "lib/lib.ts"
+    
+}

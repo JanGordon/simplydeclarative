@@ -1,4 +1,4 @@
-import { div, textInput, sdText, renderApp, sdElement, sdGetNodeById, button } from "./lib"
+import { div, textInput, sdText, renderApp, sdElement, sdGetNodeById, button } from "../../lib/lib"
 
 
 
